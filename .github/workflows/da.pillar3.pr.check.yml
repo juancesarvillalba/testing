@@ -1,0 +1,36 @@
+on:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - 'data_acquisition/**'
+    types:
+      - opened
+      - reopened
+      - edited
+
+jobs:
+  specific_review_requested:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR title and description
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          raw_title="${{ github.event.pull_request.title }}"
+          raw_description="${PR_BODY}"
+
+          title_contains_pattern=$(echo "${raw_title}" | grep -Ei 'EVA1-[0-9]+|EVA2-[0-9]+|EVA3-[0-9]+' || echo "")
+          description_contains_pattern=$(echo "${raw_description}" | grep -Ei 'EVA1-[0-9]+|EVA2-[0-9]+|EVA3-[0-9]+' || echo "")
+          title_contains_no_ticket=$(echo "${{ github.event.pull_request.title }}" | grep -i 'NO-TICKET' || echo "")
+                    
+          if [ -n "$title_contains_no_ticket" ]; then
+            echo "NO-TICKET skip checks'."
+            exit 0
+          fi
+          
+          if ([ -z "$title_contains_pattern" ] || [ -z "$description_contains_pattern" ]); then
+            echo "Error: PR title or description does not contain the required pattern. Please include 'EVA1-XXXX', 'EVA2-XXXX', or 'EVA3-XXXX'."
+            exit 1
+          fi
+

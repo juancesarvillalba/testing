@@ -1,0 +1,37 @@
+name: DA - Pillar 3 - Release JIRA version
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      release_branch:
+        type: string
+        required: false
+
+permissions:
+  deployments: write
+  id-token: write
+  contents: read # This is required for actions/checkout@v4
+  actions: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  BRANCH_NAME: ${{ inputs.release_branch || github.ref_name }}
+  REF: ${{ inputs.release_branch || github.ref_name }}
+
+
+jobs:
+  da_pillar3_release_fix_jira_version:
+    name: Jira release set
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.REF }}
+
+      - name: Jira version
+        run: |
+          echo "Release Branch: ${{ inputs.release_branch }}"
+

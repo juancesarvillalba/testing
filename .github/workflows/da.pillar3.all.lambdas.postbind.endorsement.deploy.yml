@@ -1,0 +1,50 @@
+name: DA - Pillar 3 - PostBind Endorsement Lambda deploy
+on:
+  workflow_dispatch:
+    inputs:
+      env:
+        description: "Environment [dev|integration]"
+        required: true
+        type: choice
+        options:
+          - dev
+          - integration
+  # Called from another workflow
+  workflow_call:
+    inputs:
+      env:
+        description: "Environment [dev|integration|preprod|prod]"
+        type: string
+        required: true
+        default: "dev"
+      release_branch:
+        type: string
+        required: true
+
+permissions:
+  id-token: write
+  contents: read # This is required for actions/checkout@v4
+
+env:
+  AWS_REGION: eu-west-1
+  TERRAFORM_VERSION: 1.5.7
+  ENV: ${{ inputs.env || 'dev' }}
+  REF: ${{ inputs.release_branch || github.ref_name }}
+
+jobs:
+  deploy-lambda:
+    runs-on: ubuntu-latest
+    name: Postbind Endorsement
+    defaults:
+      run:
+        working-directory: ./data_acquisition/infra
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.REF }}
+
+      - name: Postbind Endorsement
+        run: |
+          echo "Postbind Endorsement ${{ github.sha }}"

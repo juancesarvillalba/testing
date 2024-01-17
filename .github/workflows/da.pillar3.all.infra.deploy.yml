@@ -1,0 +1,69 @@
+name: DA - Infra deploy
+on:
+  workflow_dispatch:
+    inputs:
+      env:
+        description: "Environment [dev|integration]"
+        required: true
+        type: choice
+        options:
+          - dev
+          - integration
+  # Called from another workflow
+  workflow_call:
+    inputs:
+      env:
+        description: "Environment [dev|integration|preprod|prod]"
+        type: string
+        required: true
+        default: "dev"
+      release_branch:
+        type: string
+        required: true
+
+permissions:
+  deployments: write
+  id-token: write
+  contents: read # This is required for actions/checkout@v4
+
+env:
+  AWS_REGION: eu-west-1
+  TERRAFORM_VERSION: 1.5.7
+  ENV: ${{ inputs.env || 'dev' }}
+  REF: ${{ inputs.release_branch || github.ref_name }}
+
+jobs:
+  deploy-infrastructure:
+    runs-on: ubuntu-latest
+    name: Deploy Infra
+    defaults:
+      run:
+        working-directory: ./data_acquisition/infra
+
+    steps:
+      - name: Start Deployment
+        uses: bobheadxi/deployments@v1
+        id: deployment
+        with:
+          step: start
+          token: ${{ secrets.GITHUB_TOKEN }}
+          env: eva-pillar-3/infra/${{ env.ENV }}
+          
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.REF }}
+
+      - name: Print Commit SHA
+        run: |
+          echo "${{ github.sha }}"
+          
+      - name: Update Deployment Status
+        uses: bobheadxi/deployments@v1
+        if: always()
+        with:
+          step: finish
+          token: ${{ secrets.GITHUB_TOKEN }}
+          status: ${{ job.status }}
+          env: ${{ steps.deployment.outputs.env }}
+          deployment_id: ${{ steps.deployment.outputs.deployment_id }}

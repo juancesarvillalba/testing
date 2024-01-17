@@ -1,0 +1,113 @@
+name: DA - Pillar 3 - Prebind Slips Lambda deploy
+on:
+  # Manual entrypoint
+  workflow_dispatch:
+    inputs:
+      env:
+        description: "Environment [dev|integration]"
+        required: true
+        default: "dev"
+      gs_v_deploy:
+        description: "Deploy GS validation"
+        required: false
+        type: boolean
+        default: false
+      gs_lt_deploy:
+        description: "Deploy GS transformation"
+        required: false
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      env:
+        description: "Environment [test|integration|preprod|prod]"
+        required: true
+        type: string
+        default: "dev"
+      gs_v_deploy:
+        description: "Deploy GS validation"
+        required: false
+        type: boolean
+        default: false
+      gs_lt_deploy:
+        description: "Deploy GS transformation"
+        required: false
+        type: boolean
+        default: false
+
+
+permissions:
+  deployments: write
+  id-token: write
+  contents: read # This is required for actions/checkout@v2
+
+env:
+  ENV: ${{ github.event.inputs.env || 'dev' }}
+  AWS_REGION: eu-west-1
+  GS_V_DEPLOY: ${{ github.event.inputs.gs_v_deploy || github.ref == 'refs/heads/master' }}
+  GS_LT_DEPLOY: ${{ github.event.inputs.gs_lt_deploy || github.ref == 'refs/heads/master' }}
+
+jobs:
+  deploy:
+    name: Deploy Lambdas Prebinds
+    runs-on: ubuntu-latest
+    env:
+      LAMBDA_PATH: data_acquisition/lambda/
+      GS_V_LAMBDA_NAME: prebind-validation
+      GS_LT_LAMBDA_NAME: prebind-transformer
+
+    steps:
+      - name: Start Deployment
+        uses: bobheadxi/deployments@v0.6.2
+        id: deployment
+        with:
+          step: start
+          token: ${{ secrets.GITHUB_TOKEN }}
+          env: dam/${{ env.ENV }}/lambda
+
+      - name: Git Checkout
+        uses: actions/checkout@v4
+
+      - name: Set AWS Account ID
+        run: |
+          if [[ ${ENV} == 'test' || ${ENV} == 'integration' ]]; then
+            echo "ACCOUNT=362403473208" >> $GITHUB_ENV
+          fi
+          if [[ ${ENV} == 'preprod' ]]; then
+            echo "ACCOUNT=937087219065" >> $GITHUB_ENV
+          fi
+          if [[ ${ENV} == 'prod' ]]; then
+            echo "ACCOUNT=063717323521" >> $GITHUB_ENV
+          fi
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          role-to-assume: "arn:aws:iam::${{ env.ACCOUNT }}:role/data-acquisition-ci-cd-role"
+          role-session-name: data-acquisition-role-session
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set Lambda bucket name
+        run: |
+          echo LAMBDA_BUCKET_NAME=data-acquisition-lambda-function-store-${ENV} >> $GITHUB_ENV
+
+      - name: Upload GS V lambda code file to s3 and update lambda
+        if: ${{ env.GS_V_DEPLOY == 'true' }}
+        working-directory: ${{ env.LAMBDA_PATH }}
+        run: |
+          sh deploy_lambda.sh ${{ env.ENV }} ${{ env.GS_V_LAMBDA_NAME }}
+
+      - name: Upload GS LT lambda code file to s3 and update lambda
+        if: ${{ env.GS_LT_DEPLOY == 'true' }}
+        working-directory: ${{ env.LAMBDA_PATH }}
+        run: |
+          sh deploy_lambda.sh ${{ env.ENV }} ${{ env.GS_LT_LAMBDA_NAME }}
+
+      - name: Update Deployment Status
+        uses: bobheadxi/deployments@v0.6.2
+        if: always()
+        with:
+          step: finish
+          token: ${{ secrets.GITHUB_TOKEN }}
+          status: ${{ job.status }}
+          deployment_id: ${{ steps.deployment.outputs.deployment_id }}
