@@ -1,0 +1,86 @@
+name: DA - Pillar 3 - Deploy Lambda Layers
+on:
+  # Push changes to dev environment on trunk changes
+#  push:
+#    paths:
+#      - "data_acquisition/lambda/layers/**"
+#    branches:
+#      - "master"
+
+  # Manual entrypoint
+  workflow_dispatch:
+    inputs:
+      env:
+        description: "Environment [dev|integration]"
+        required: true
+        type: choice
+        options:
+          - dev
+          - integration
+
+  # Called from another workflow
+  workflow_call:
+    inputs:
+      env:
+        description: "Environment [dev|integration|preprod|prod]"
+        required: true
+        type: string
+        default: "dev"
+
+permissions:
+  deployments: write
+  id-token: write
+  contents: read # This is required for actions/checkout@v4
+  actions: read
+
+env:
+  ENV: ${{ github.event.inputs.env || 'dev' }}
+  AWS_REGION: eu-west-1
+
+jobs:
+  deploy:
+    name: Lambda Layers
+    runs-on: ubuntu-latest
+    env:
+      LAMBDA_PATH: data_acquisition/lambda/
+
+    steps:
+      - name: Start Layers Deployment
+        uses: bobheadxi/deployments@v0.6.2
+        id: deployment
+        with:
+          step: start
+          token: ${{ secrets.GITHUB_TOKEN }}
+          env: eva-pillar-3/layers/${{ env.ENV }}
+
+      - name: Git Checkout
+        uses: actions/checkout@v4
+
+      - name: Set AWS Account ID
+        run: |
+          if [[ ${ENV} == 'dev' || ${ENV} == 'test' || ${ENV} == 'integration' ]]; then
+            echo "ACCOUNT=362403473208" >> $GITHUB_ENV
+          fi
+          if [[ ${ENV} == 'preprod' ]]; then
+            echo "ACCOUNT=937087219065" >> $GITHUB_ENV
+          fi
+          if [[ ${ENV} == 'prod' ]]; then
+            echo "ACCOUNT=063717323521" >> $GITHUB_ENV
+          fi
+
+      - name: Set Lambda bucket name
+        run: |
+          if [[ ${ENV} == 'dev' ]]; then
+            echo LAMBDA_BUCKET_NAME=data-acquisition-lambda-function-store-test >> $GITHUB_ENV
+          else
+            echo LAMBDA_BUCKET_NAME=data-acquisition-lambda-function-store-${ENV} >> $GITHUB_ENV
+          fi
+
+      - name: Update Deployment Status
+        uses: bobheadxi/deployments@v0.6.2
+        if: always()
+        with:
+          step: finish
+          token: ${{ secrets.GITHUB_TOKEN }}
+          status: ${{ job.status }}
+          deployment_id: ${{ steps.deployment.outputs.deployment_id }}

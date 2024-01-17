@@ -1,0 +1,138 @@
+name: DA - Pillar 3 - Prebind Lambdas
+on:
+  # Manual entrypoint
+  workflow_dispatch:
+    inputs:
+      env:
+        description: "Environment [dev|integration]"
+        required: true
+        default: "dev"
+      prebind_validation_deploy:
+        description: "Deploy Prebind validation"
+        required: false
+        type: boolean
+        default: false
+      prebind_transformation_deploy:
+        description: "Deploy Prebind transformation"
+        required: false
+        type: boolean
+        default: false
+      prebind_enrichment_deploy:
+        description: "Deploy Prebind enrichment"
+        required: false
+        type: boolean
+        default: false
+      prebind_ghost_user_deploy:
+        description: "Deploy Prebind Ghost User"
+        required: false
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      env:
+        description: "Environment [test|integration|preprod|prod]"
+        required: true
+        type: string
+        default: "dev"
+      prebind_validation_deploy:
+        description: "Deploy Prebind validation"
+        required: false
+        type: boolean
+        default: false
+      prebind_transformation_deploy:
+        description: "Deploy Prebind transformation"
+        required: false
+        type: boolean
+        default: false
+      prebind_enrichment_deploy:
+        description: "Deploy Prebind enrichment"
+        required: false
+        type: boolean
+        default: false
+      prebind_ghost_user_deploy:
+        description: "Deploy Prebind Ghost User"
+        required: false
+        type: boolean
+        default: false
+
+
+permissions:
+  deployments: write
+  id-token: write
+  contents: read # This is required for actions/checkout@v4
+
+env:
+  ENV: ${{ github.event.inputs.env || 'dev' }}
+  AWS_REGION: eu-west-1
+  PREBIND_VALIDATION_DEPLOY: ${{ github.event.inputs.prebind_validation_deploy || inputs.prebind_validation_deploy}}
+  PREBIND_TRANSFORMATION_DEPLOY: ${{ github.event.inputs.prebind_transformation_deploy || inputs.prebind_transformation_deploy }}
+  PREBIND_ENRICHMENT_DEPLOY: ${{ github.event.inputs.prebind_enrichment_deploy || inputs.prebind_enrichment_deploy }}
+  PREBIND_GHOST_USER_DEPLOY: ${{ github.event.inputs.prebind_ghost_user_deploy || inputs.prebind_ghost_user_deploy }}
+
+jobs:
+  deploy:
+    name: Prebind Lambdas
+    runs-on: ubuntu-latest
+    env:
+      LAMBDA_PATH: data_acquisition/lambda/
+      PREBIND_VALIDATION_LAMBDA_NAME: prebind-validation
+      PREBIND_TRANSFORMATION_LAMBDA_NAME: prebind-transformer
+      PREBIND_ENRICHMENT_LAMBDA_NAME: prebind-enrichment
+
+    steps:
+      - name: Start Deployment
+        uses: bobheadxi/deployments@v1
+        id: deployment
+        with:
+          step: start
+          token: ${{ secrets.GITHUB_TOKEN }}
+          env: eva-pillar-3/lambda/prebind/${{ env.ENV }}
+
+      - name: Git Checkout
+        uses: actions/checkout@v4
+
+      - name: Set AWS Account ID
+        run: |
+          if [[ ${ENV} == 'dev' || ${ENV} == 'test' || ${ENV} == 'integration' ]]; then
+            echo "ACCOUNT=362403473208" >> $GITHUB_ENV
+          fi
+          if [[ ${ENV} == 'preprod' ]]; then
+            echo "ACCOUNT=937087219065" >> $GITHUB_ENV
+          fi
+          if [[ ${ENV} == 'prod' ]]; then
+            echo "ACCOUNT=063717323521" >> $GITHUB_ENV
+          fi
+
+      - name: Upload Prebind Validation lambda code file to s3 and update lambda
+        if: ${{ env.PREBIND_VALIDATION_DEPLOY == 'true' || env.PREBIND_VALIDATION_DEPLOY == true }}
+        working-directory: ${{ env.LAMBDA_PATH }}
+        run: |
+          sh deploy_lambda.sh ${{ env.ENV }} ${{ env.PREBIND_VALIDATION_LAMBDA_NAME }}
+
+      - name: Upload Prebind Transformation lambda code file to s3 and update lambda
+        if: ${{ env.PREBIND_TRANSFORMATION_DEPLOY == 'true' }}
+        working-directory: ${{ env.LAMBDA_PATH }}
+        run: |
+          sh deploy_lambda.sh ${{ env.ENV }} ${{ env.PREBIND_TRANSFORMATION_LAMBDA_NAME }}
+          
+      - name: Upload Prebind Enrichment lambda code file to s3 and update lambda
+        if: ${{ env.PREBIND_ENRICHMENT_DEPLOY == 'true' }}
+        working-directory: ${{ env.LAMBDA_PATH }}
+        run: |
+          sh deploy_lambda.sh ${{ env.ENV }} ${{ env.PREBIND_ENRICHMENT_LAMBDA_NAME }}
+          
+      - name: Upload Prebind Ghost User lambda code file to s3 and update lambda
+        if: ${{ env.PREBIND_GHOST_USER_DEPLOY == 'true' }}
+        working-directory: ${{ env.LAMBDA_PATH }}
+        run: |
+          sh deploy_ghost_lambda.sh ${{ env.ENV }}
+
+      - name: Update Deployment Status
+        uses: bobheadxi/deployments@v1
+        if: always()
+        with:
+          step: finish
+          token: ${{ secrets.GITHUB_TOKEN }}
+          status: ${{ job.status }}
+          env: ${{ steps.deployment.outputs.env }}
+          deployment_id: ${{ steps.deployment.outputs.deployment_id }}

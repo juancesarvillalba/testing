@@ -1,0 +1,50 @@
+name: DA - Pillar 3 - Release run
+on:
+  push:
+    branches:
+      - 'eva-pillar3-release-*'
+
+  workflow_dispatch:
+    inputs:
+      env:
+        description: 'Environment [preprod|prod]'
+        required: true
+        type: choice
+        options:
+          - preprod
+          - prod
+        default: 'preprod'
+
+
+permissions:
+  deployments: write
+  id-token: write
+  contents: read # This is required for actions/checkout@v4
+  actions: read
+
+jobs:
+  da_pillar3_release_run_tests:
+    if: inputs.env == '' || inputs.env == 'preprod'
+    name: Run automated tests
+    uses: juancesarvillalba/test-release/.github/workflows/da.pillar3.release-tests.yml@master
+    with:
+      release_branch: ${{ inputs.release_branch || github.ref_name }}
+
+  da_pillar3_release_fix_jira_version:
+    if: inputs.env == '' || inputs.env == 'preprod'
+    name: Update JIRA version
+    uses: juancesarvillalba/test-release/.github/workflows/da.pillar3.release-jira-version.yml@master
+    with:
+      release_branch: ${{ inputs.release_branch || github.ref_name }}
+    secrets: inherit
+
+  da_pillar3_release_deploy_all:
+    if: failure() != true && cancelled() != true
+    name: Deploy
+    needs: [da_pillar3_release_run_tests]
+    uses: juancesarvillalba/test-release/.github/workflows/da.pillar3.all.cicd.deploy.yml@master
+    with:
+      env: ${{ inputs.env || 'preprod' }}
+      release_branch: ${{ inputs.release_branch || github.ref_name }}
+      resource: all
+    secrets: inherit

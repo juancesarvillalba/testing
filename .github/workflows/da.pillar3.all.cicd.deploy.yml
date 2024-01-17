@@ -1,0 +1,292 @@
+name: DA - Pillar 3 - Deploy All CI CD
+on:
+  push:
+    paths:
+      - 'data_acquisition/infra/**'
+      - 'data_acquisition/lambda/**'
+      - '.github/workflows/da.pillar3.all.infra.deploy.yml'
+      - '.github/workflows/da.pillar3.all.cicd.deploy.yml'
+      - '.github/workflows/da.pillar3.all.layers.deploy.yml'
+    branches:
+      - 'master'
+  # Manual entrypoint
+  workflow_dispatch:
+    inputs:
+      env:
+        description: 'Environment [dev|integration]'
+        required: true
+        type: choice
+        options:
+          - dev
+          - integration
+        default: dev
+      infra_deploy:
+        description: "Deploy Infra"
+        required: false
+        type: boolean
+        default: false
+      layers_deploy:
+        description: "Deploy Layers"
+        required: false
+        type: boolean
+        default: false
+      postbind_slip_deploy:
+        description: "Deploy Postbind Lambdas"
+        required: false
+        type: boolean
+        default: false
+      postbind_endorsement_deploy:
+        description: "Deploy Postbind Endorsement Lambdas"
+        required: false
+        type: boolean
+        default: false
+      prebind_slips_deploy:
+        description: "Deploy Postbind Endorsement Lambdas"
+        required: false
+        type: boolean
+        default: false
+      frontend_deploy:
+        description: "Deploy FrontEnd"
+        required: false
+        type: boolean
+        default: false
+      all_deploy:
+        description: "Deploy All"
+        required: false
+        type: boolean
+        default: false
+      none_deploy:
+        description: "Deploy None"
+        required: false
+        type: boolean
+        default: false
+#      resource:
+#        description: 'Resource [infra|layers|lambdas-postbind-slip|lambdas-postbind-endorsement|lambdas-prebind-slip|ui|all|none]'
+#        required: true
+#        type: choice
+#        options:
+#          - infra
+#          - layers
+#          - lambdas-postbind-slip
+#          - lambdas-postbind-endorsement
+#          - lambdas-prebind-slip
+#          - ui
+#          - all
+#          - none
+#        default: 'none'
+        
+  # Called from another workflow      
+  workflow_call:
+    inputs:
+      env:
+        description: 'Environment [preprod|prod]'
+        required: true
+        type: string
+      release_branch:
+        type: string
+        required: true
+      infra_deploy:
+        description: "Deploy Infra"
+        required: false
+        type: boolean
+        default: false
+      layers_deploy:
+        description: "Deploy Layers"
+        required: false
+        type: boolean
+        default: false
+      postbind_slip_deploy:
+        description: "Deploy Postbind Lambdas"
+        required: false
+        type: boolean
+        default: false
+      postbind_endorsement_deploy:
+        description: "Deploy Postbind Endorsement Lambdas"
+        required: false
+        type: boolean
+        default: false
+      prebind_slips_deploy:
+        description: "Deploy Postbind Endorsement Lambdas"
+        required: false
+        type: boolean
+        default: false
+      frontend_deploy:
+        description: "Deploy FrontEnd"
+        required: false
+        type: boolean
+        default: false
+      all_deploy:
+        description: "Deploy All"
+        required: false
+        type: boolean
+        default: false
+      none_deploy:
+        description: "Deploy None"
+        required: false
+        type: boolean
+        default: false
+      #      resource:
+      #        description: 'Resource [infra|layers|lambdas-postbind-slip|lambdas-postbind-endorsement|lambdas-prebind-slip|ui|all|none]'
+      #        required: true
+      #        type: choice
+      #        options:
+      #          - infra
+      #          - layers
+      #          - lambdas-postbind-slip
+      #          - lambdas-postbind-endorsement
+      #          - lambdas-prebind-slip
+      #          - ui
+      #          - all
+      #          - none
+      #        default: 'none'
+
+
+
+permissions:
+  deployments: write
+  id-token: write
+  contents: read # This is required for actions/checkout@v4
+  actions: read
+
+env:
+  ENV: ${{ inputs.env || 'dev' }}
+  INFRA_DEPLOY: ${{ github.event.inputs.infra_deploy || inputs.infra_deploy}}
+  LAYERS_DEPLOY: ${{ github.event.inputs.layers_deploy || inputs.layers_deploy}}
+  POSTBIND_SLIP_DEPLOY: ${{ github.event.inputs.postbind_slip_deploy || inputs.postbind_slip_deploy}}
+  POSTBIND_ENDORSEMENT_DEPLOY: ${{ github.event.inputs.postbind_endorsement_deploy || inputs.postbind_endorsement_deploy}}
+  PREBIND_SLIPS_DEPLOY: ${{ github.event.inputs.prebind_slips_deploy || inputs.prebind_slips_deploy}}
+  FRONTEND_DEPLOY: ${{ github.event.inputs.frontend_deploy || inputs.frontend_deploy}}
+  ALL_DEPLOY: ${{ github.event.inputs.all_deploy || inputs.all_deploy}}
+  NONE_DEPLOY: ${{ github.event.inputs.none_deploy || inputs.none_deploy}}
+
+
+jobs:
+  start_deployments:
+    name: Start deployments
+    runs-on: ubuntu-latest
+    outputs:
+      deployment_id: ${{ steps.deployment.outputs.deployment_id }}
+      deployment_env: ${{ steps.deployment.outputs.env }}
+    
+    steps:
+      - name: Create Deployment
+        id: deployment
+        uses: bobheadxi/deployments@v1
+        with:
+          step: start
+          token: ${{ secrets.GITHUB_TOKEN }}
+          env: eva-pillar-3/${{ env.ENV }}
+          ref: ${{ inputs.release_branch || github.ref_name }}
+
+
+  paths-filter:
+    if: failure() != true && inputs.all_deploy != 'all' && (inputs.env == '' || contains(fromJSON('["dev", "integration"]'), inputs.env))
+    runs-on: ubuntu-latest
+    needs: start_deployments
+    outputs:
+      infra: ${{ steps.filter.outputs.infra }}
+      layers: ${{ steps.filter.outputs.layers }}
+      lambdas-postbind-slip: ${{ steps.filter.outputs.lambdas-postbind-slip }}
+      lambdas-postbind-endorsement: ${{ steps.filter.outputs.lambdas-postbind-endorsement }}
+      lambdas-prebind-slip: ${{ steps.filter.outputs.lambdas-prebind-slip }}
+      ui: ${{ steps.filter.outputs.ui }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dorny/paths-filter@v2.11.1
+        id: filter
+        with:
+          filters: |
+            infra:
+              - ".github/workflows/da.pillar3.all.infra.deploy.yml"
+              - "data_acquisition/infra/**"
+            layers:
+              - ".github/workflows/da.pillar3.all.layers.deploy.yml"
+              - "data_acquisition/lambda/layers/**"
+            lambdas-postbind-slip:
+              - ".github/workflows/da.pillar3.lambdas.postbind.slips.deploy.yml"
+              - "data_acquisition/lambda/postbind-eclipse-fetch/**"
+              - "data_acquisition/lambda/postbind-eclipse-writer/**"
+            lambdas-postbind-endorsement:
+              - ".github/workflows/da.pillar3.lambdas.postbind.endorsement.deploy.yml"
+              - "data_acquisition/lambda/postbind-endorsement-api-fetch/**"
+              - "data_acquisition/lambda/postbind-endorsement-api-write/**"
+            lambdas-prebind-slip:
+              - ".github/workflows/da.pillar3.all.lambdas.prebind.slips.deploy.yml"
+              - "data_acquisition/lambda/prebind-enrichment/**"
+              - "data_acquisition/lambda/prebind-transformer/**"
+              - "data_acquisition/lambda/prebind-validation/**"
+            ui:
+              - "data_acquisition/yarn.lock"
+              - "data_acquisition/postbound-ui/**"
+              - ".github/workflows/da.pillar3.allenv.ui.deploy.yml"
+
+  infra:
+#    if: failure() != true && (needs.paths-filter.outputs.infra == 'true' || env.INFRA_DEPLOY == 'true' || env.INFRA_DEPLOY == true || env.ALL_DEPLOY == true || env.ALL_DEPLOY == true)
+    if: failure() != true && false
+    name: Infra
+    needs: [ paths-filter, start_deployments ]
+    uses: juancesarvillalba/test-release/.github/workflows/da.pillar3.all.infra.deploy.yml@master
+    with:
+      env: ${{ inputs.env || 'dev' }}
+      release_branch: ${{ inputs.release_branch || github.ref_name }}
+
+#  layers:
+#    if: failure() != true && (needs.paths-filter.outputs.layers == 'true' || contains(fromJSON('["all", "layers"]'), inputs.resource))
+#    name: Layers
+#    needs: [ paths-filter, infra, start_deployments ]
+#    uses: juancesarvillalba/test-release/.github/workflows/da.pillar3.all.layers.deploy.yml@master
+#    with:
+#      env: ${{ inputs.env || 'dev' }}
+#
+#  lambdas-postbind-slip:
+#    if: failure() != true && (needs.paths-filter.outputs.lambdas-postbind-slip == 'true' || contains(fromJSON('["all", "lambdas-postbind-slip"]'), inputs.resource))
+#    name: Lambdas
+#    needs: [ paths-filter, layers, start_deployments ]
+#    uses: juancesarvillalba/test-release/.github/workflows/da.pillar3.all.lambdas.postbind.slips.deploy.yml@master
+#    with:
+#      env: ${{ inputs.env || 'dev' }}
+#      release_branch: ${{ inputs.release_branch || github.ref_name }}
+#
+#  lambdas-prebind-slip:
+#    if: failure() != true && (needs.paths-filter.outputs.lambdas-prebind-slip == 'true' || contains(fromJSON('["all", "lambdas-prebind-slip"]'), inputs.resource))
+#    name: Lambdas Prebind
+#    needs: [ paths-filter, layers, start_deployments ]
+#    uses: juancesarvillalba/test-release/.github/workflows/da.pillar3.all.lambdas.prebind.slips.deploy.yml@master
+#    with:
+#      env: ${{ inputs.env || 'dev' }}
+#      prebind_validation_deploy: true
+#      prebind_transformation_deploy: true
+#      prebind_enrichment_deploy: true
+#      prebind_ghost_user_deploy: true
+#
+#  lambdas-postbind-endorsement:
+#    if: failure() != true && (needs.paths-filter.outputs.lambdas-postbind-endorsement == 'true' || contains(fromJSON('["all", "lambdas-postbind-endorsement"]'), inputs.resource))
+#    name: Lambdas Postbind
+#    needs: [ paths-filter, layers, start_deployments ]
+#    uses: juancesarvillalba/test-release/.github/workflows/da.pillar3.all.lambdas.postbind.endorsement.deploy.yml@master
+#    with:
+#      env: ${{ inputs.env || 'dev' }}
+#      release_branch: ${{ inputs.release_branch || github.ref_name }}
+
+  finish_deployments:
+    name: Finish deployments
+#    needs: [ start_deployments, infra, layers, lambdas-postbind-slip, lambdas-prebind-slip, lambdas-postbind-endorsement]
+    needs: [ start_deployments, infra]
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Update deployment status
+        id: end_deployment
+        uses: bobheadxi/deployments@v1
+        if: always()
+        with:
+          step: finish
+          token: ${{ secrets.GITHUB_TOKEN }}
+          status: ${{ job.status }}
+          env: ${{ needs.start_deployments.outputs.deployment_env }}
+          deployment_id: ${{ needs.start_deployments.outputs.deployment_id }}
+  
